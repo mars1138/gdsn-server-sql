@@ -2,11 +2,25 @@ const path = require('path');
 
 const express = require('express');
 const bodyParser = require('body-parser');
-const mongoose = require('mongoose');
+const knex = require('knex');
 
 const productsRoutes = require('./routes/products-routes');
 const usersRoutes = require('./routes/users-routes');
 const contactRoutes = require('./routes/contact-routes');
+
+const db = knex({
+  client: `${process.env.DB_CLIENT}`,
+  connection: {
+    host: `${process.env.DB_HOST}`,
+    user: `${process.env.DB_USER}`,
+    password: `${process.env.DB_PASSWORD}`,
+    database: `${process.env.DB_NAME}`,
+  },
+});
+
+db.select('*')
+  .from('users')
+  .then((data) => console.log(data));
 
 const app = express();
 const cors = require('cors');
@@ -36,10 +50,6 @@ app.use((error, req, res, next) => {
   res.json({ message: error.message || 'An unknown error occurred!' });
 });
 
-mongoose
-  .connect(
-    `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.ykppkft.mongodb.net/${process.env.DB_NAME}?retryWrites=true&w=majority`,
-    { useNewUrlParser: true, useUnifiedTopology: true, useCreateIndex: true }
-  )
-  .then(() => app.listen(process.env.PORT || 5000))
-  .catch((err) => console.log(err));
+app.listen(process.env.PORT, () => {
+  console.log(`App is listening on port ${process.env.PORT}`);
+});

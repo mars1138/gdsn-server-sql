@@ -1,7 +1,6 @@
 const uuid = require('uuid').v4;
 
 const { validationResult } = require('express-validator');
-const mongoose = require('mongoose');
 const {
   S3Client,
   PutObjectCommand,
