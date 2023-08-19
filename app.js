@@ -2,21 +2,22 @@ const path = require('path');
 
 const express = require('express');
 const bodyParser = require('body-parser');
-const knex = require('knex');
+// const knex = require('knex');
 
 const productsRoutes = require('./routes/products-routes');
 const usersRoutes = require('./routes/users-routes');
 const contactRoutes = require('./routes/contact-routes');
+const db = require('./models/db');
 
-const db = knex({
-  client: `${process.env.DB_CLIENT}`,
-  connection: {
-    host: `${process.env.DB_HOST}`,
-    user: `${process.env.DB_USER}`,
-    password: `${process.env.DB_PASSWORD}`,
-    database: `${process.env.DB_NAME}`,
-  },
-});
+// const db = knex({
+//   client: `${process.env.DB_CLIENT}`,
+//   connection: {
+//     host: `${process.env.DB_HOST}`,
+//     user: `${process.env.DB_USER}`,
+//     password: `${process.env.DB_PASSWORD}`,
+//     database: `${process.env.DB_NAME}`,
+//   },
+// });
 
 db.select('*')
   .from('users')
@@ -31,7 +32,8 @@ app.use('/uploads/images', express.static(path.join('uploads', 'images')));
 
 app.use(
   cors({
-    origin: `${process.env.CLIENT_URL}`,
+    origin: '*',
+    // origin: `${process.env.CLIENT_URL}`,
     methods: ['GET', 'POST', 'DELETE', 'UPDATE', 'PUT', 'PATCH'],
   })
 );
@@ -40,10 +42,10 @@ app.use('/api/products', productsRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/contact', contactRoutes);
 
-app.use((req, res, next) => {
-  const error = new HttpError('Could not find this route', 404);
-  throw error;
-});
+// app.use((req, res, next) => {
+//   const error = new HttpError('Could not find this route', 404);
+//   throw error;
+// });
 
 app.use((error, req, res, next) => {
   res.status(error.code || 500);

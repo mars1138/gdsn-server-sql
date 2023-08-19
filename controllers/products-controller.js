@@ -12,6 +12,8 @@ const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const HttpError = require('../models/http-error');
 const Product = require('../models/product');
 const User = require('../models/user');
+const db = require('../models/db');
+
 
 const bucketName = `${process.env.BUCKET_NAME}`;
 const bucketRegion = `${process.env.BUCKET_REGION}`;

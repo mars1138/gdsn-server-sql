@@ -1,6 +1,7 @@
 const { validationResult } = require('express-validator');
 const HttpError = require('../models/http-error');
 const ContactItem = require('../models/contactitem');
+const db = require('../models/db');
 
 const createContactItem = async (req, res, next) => {
   const errors = validationResult(req);
@@ -14,54 +15,41 @@ const createContactItem = async (req, res, next) => {
 
   const { name, company, email, phone, comments } = req.body;
 
-  const createdContactItem = new ContactItem({
-    name,
-    company,
-    email,
-    phone: phone || null,
-    comments: comments || '',
-    date: new Date().toISOString(),
-  });
-
-  try {
-    await createdContactItem.save();
-  } catch (err) {
-    const error = new HttpError(
-      'Error sending contact info, please try again',
-      500
-    );
-    return next(error);
-  }
-
-  res.status(201).json({
-    message: 'Contact item created!',
-    contactItem: createdContactItem.toObject({ getters: true }),
-  });
+  db.transaction((trx) => {
+    trx
+      .insert({
+        name,
+        company,
+        email,
+        phone,
+        comments,
+        created: new Date().toISOString(),
+      })
+      .into('contact')
+      .returning('*')
+      .then((contact) => {
+        res.status(201).json({
+          message: 'Contact item created!',
+          contactItem: { name, company, email, phone, comments },
+        });
+      })
+      .then(trx.commit)
+      .catch(trx.rollback);
+  }).catch((err) =>
+    next(new HttpError('Unable to register contact, please try again!', 500))
+  );
 };
 
 const getContactItems = async (req, res, next) => {
-  let contactItems;
-
-  try {
-    contactItems = await ContactItem.find();
-  } catch (err) {
-    const error = new HttpError(
-      'Fetching contacts failed, please try  again',
-      500
+  db.select('*')
+    .from('contact')
+    .then((contacts) => {
+      if (contacts.length) res.json(contacts);
+      else return next(new HttpError('No contacts to fetch', 400));
+    })
+    .catch((err) =>
+      next(new HttpError('Fetching contacts failed, please try again', 400))
     );
-
-    return next(error);
-  }
-
-  if (!contactItems || contactItems.length === 0) {
-    const error = new HttpError('No contact items to fetch', 400);
-
-    return next(error);
-  }
-
-  res.json({
-    contact: contactItems.map((item) => item.toObject({ getter: true })),
-  });
 };
 
 exports.createContactItem = createContactItem;
