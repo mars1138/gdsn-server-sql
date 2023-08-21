@@ -7,16 +7,26 @@ const User = require('../models/user');
 const db = require('../models/db');
 
 const getUsers = async (req, res, next) => {
-  let users;
+  db.select('*')
+    .from('users')
+    .returning('userList')
+    .then((userList) => {
+      res.json({ users: userList });
+    })
+    .catch((err) =>
+      next(new HttpError('Fetching users failed, please try again', 500))
+    );
 
-  try {
-    users = await User.find({}, '-password');
-  } catch (err) {
-    const error = new HttpError('Fetching users failed, please try again', 500);
-    return next(error);
-  }
+  // let users;
 
-  res.json({ users: users.map((user) => user.toObject({ getters: true })) });
+  // try {
+  //   users = await User.find({}, '-password');
+  // } catch (err) {
+  //   const error = new HttpError('Fetching users failed, please try again', 500);
+  //   return next(error);
+  // }
+
+  // res.json({ users: users.map((user) => user.toObject({ getters: true })) });
 };
 
 const signup = async (req, res, next) => {
@@ -28,73 +38,145 @@ const signup = async (req, res, next) => {
   }
 
   const { name, company, email, password } = req.body;
+
   let existingUser;
-
-  try {
-    existingUser = await User.findOne({ email: email });
-  } catch (err) {
-    console.log(err);
-    return next(new HttpError('Signup failed, please try again', 500));
-  }
-
-  if (existingUser)
-    return next(new HttpError('User with that email already exists', 422));
-
   let hashedPassword;
+
+  db.select('email')
+    .from('login')
+    .where('email', '=', email)
+    .then((users) => {
+      if (users.length)
+        return next(new HttpError('User with that email already exists', 422));
+      console.log('users: ', users);
+    })
+    .catch((err) =>
+      next(new HttpError('Signup failed, please try again (A)', 500))
+    );
 
   try {
     hashedPassword = await bcrypt.hash(password, 12);
+    console.log('password hashed');
   } catch (err) {
-    console.log('password hash error: ', err);
     return next(
       new HttpError('Could not create new user, please try again', 500)
     );
   }
 
-  const createdUser = new User({
-    name,
-    company,
-    email,
-    password: hashedPassword,
-    created: new Date().toISOString(),
-    products: [],
-  });
+  db.transaction((trx) => {
+    trx
+      .insert({
+        hash: hashedPassword,
+        email: email,
+      })
+      .into('login')
+      .returning('email')
+      .then((loginEmail) => {
+        console.log('accessing users table');
+        return trx('users')
+          .returning('*')
+          .insert({
+            name: name,
+            company: company,
+            email: loginEmail[0].email,
+            created: new Date().toISOString(),
+            products: {},
+          })
+          .then((user) => {
+            console.log(user);
 
-  try {
-    await createdUser.save();
-  } catch (err) {
-    console.log(err.message);
-    return next(
-      new HttpError(
-        'Signup failed, unable to create user.  Please try again!',
-        500
-      )
-    );
-  }
+            res.status(201).json({
+              message: 'Signup successful!',
+              userData: {
+                userId: user[0].id,
+                email: user[0].email,
+                token: 'token',
+              },
+            });
+          });
+      })
+      .then(trx.commit)
+      .catch((err) => {
+        trx.rollback;
+        return next(
+          new HttpError('Could not create new user, please try again (B)', 500)
+        );
+      });
+  }).catch((err) =>
+    next(new HttpError('Could not create new user, please try again (C)', 500))
+  );
 
-  let token;
+  // let existingUser;
 
-  try {
-    token = jwt.sign(
-      {
-        userId: createdUser.id,
-        email: createdUser.email,
-      },
-      process.env.JWT_KEY,
-      { expiresIn: '1h' }
-    );
-  } catch (err) {
-    return next(new HttpError('Signup failed, please try again!', 500));
-  }
+  // try {
+  //   existingUser = await User.findOne({ email: email });
+  // } catch (err) {
+  //   console.log(err);
+  //   return next(new HttpError('Signup failed, please try again', 500));
+  // }
 
-  res.status(201).json({
-    message: 'Signup successful!',
-    userData: {
-      userId: createdUser.id,
-      email: createdUser.email,
-      token: token,
-    },
-  });
+  // if (existingUser)
+  //   return next(new HttpError('User with that email already exists', 422));
+
+  // let hashedPassword;
+
+  // try {
+  //   hashedPassword = await bcrypt.hash(password, 12);
+  // } catch (err) {
+  //   console.log('password hash error: ', err);
+  //   return next(
+  //     new HttpError('Could not create new user, please try again', 500)
+  //   );
+  // }
+
+  // const createdUser = new User({
+  //   name,
+  //   company,
+  //   email,
+  //   password: hashedPassword,
+  //   created: new Date().toISOString(),
+  //   products: [],
+  // });
+
+  // try {
+  //   await createdUser.save();
+  // } catch (err) {
+  //   console.log(err.message);
+  //   return next(
+  //     res.status(201).json({
+  //   message: 'Signup successful!',
+  //   userData: {
+  //     userId: createdUser.id,
+  //     email: createdUser.email,
+  //     token: token,
+  //   },
+  // })
+  //   );
+  // }
+
+  // let token;
+
+  // try {
+  //   token = jwt.sign(
+  //     {
+  //       userId: createdUser.id,
+  //       email: createdUser.email,
+  //     },
+  //     process.env.JWT_KEY,
+  //     { expiresIn: '1h' }
+  //   );
+  // } catch (err) {
+  //   return next(new HttpError('Signup failed, please try again!', 500));
+  // }
+
+  // res.status(201).json({
+  //   message: 'Signup successful!',
+  //   userData: {
+  //     userId: createdUser.id,
+  //     email: createdUser.email,
+  //     token: token,
+  //   },
+  // });
 };
 
 const login = async (req, res, next) => {
