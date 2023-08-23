@@ -19,9 +19,9 @@ const db = require('./models/db');
 //   },
 // });
 
-db.select('*')
-  .from('users')
-  .then((data) => console.log(data));
+// db.select('*')
+//   .from('users')
+//   .then((data) => console.log(data));
 
 const app = express();
 const cors = require('cors');
@@ -55,3 +55,5 @@ app.use((error, req, res, next) => {
 app.listen(process.env.PORT, () => {
   console.log(`App is listening on port ${process.env.PORT}`);
 });
+
+console.log('server started');
