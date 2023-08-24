@@ -13,7 +13,7 @@ const HttpError = require('../models/http-error');
 const Product = require('../models/product');
 const User = require('../models/user');
 const db = require('../models/db');
-
+const knex = require('knex');
 
 const bucketName = `${process.env.BUCKET_NAME}`;
 const bucketRegion = `${process.env.BUCKET_REGION}`;
@@ -28,25 +28,20 @@ const s3 = new S3Client({
   region: bucketRegion,
 });
 
-const getProductById = async (req, res, next) => {
+const getProductById = (req, res, next) => {
   const prodId = req.params.pid;
+  console.log(prodId);
 
-  let product;
-
-  try {
-    prodId = await Product.find({ gtin: prodId });
-  } catch (err) {
-    return next(
-      new HttpError('Something went wrong, could not find product', 500)
+  db.select('*')
+    .from('products')
+    .where('gtin', '=', prodId)
+    .then((product) => {
+      console.log(product);
+      res.json({ product: product[0] });
+    })
+    .catch((err) =>
+      next(new HttpError('Something went wrong, could not find product', 500))
     );
-  }
-
-  if (!product)
-    return next(
-      new HttpError('Could not find a place for the provided id', 404)
-    );
-
-  res.json({ product: product[0].toObject({ getters: true }) });
 };
 
 const getProductsByUserId = async (req, res, next) => {
@@ -103,72 +98,143 @@ const createProduct = async (req, res, next) => {
     width,
     depth,
     weight,
-    packagingType,
-    tempUnits,
-    minTemp,
-    maxTemp,
-    storageInstructions,
+    packagingType: packagingtype,
+    tempUnits: tempunits,
+    minTemp: mintemp,
+    maxTemp: maxtemp,
+    storageInstructions: storageinstructions,
   } = req.body;
 
-  const fileType = req.file.mimetype.split('/')[1];
-  const imageName = `${uuid()}.${fileType}`;
+  // const fileType = req.file.mimetype.split('/')[1];
+  // const imageName = `${uuid()}.${fileType}`;
 
-  const createdProd = new Product({
-    name,
-    description,
-    gtin,
-    category,
-    type,
-    image: req.file ? imageName : null,
-    height,
-    width,
-    depth,
-    weight,
-    packagingType,
-    tempUnits,
-    minTemp,
-    maxTemp,
-    storageInstructions,
-    subscribers: [],
-    dateAdded: new Date().toISOString(),
-    datePublished: null,
-    dateInactive: null,
-    dateModified: null,
-    owner: req.userData.userId,
-  });
-  console.log('createdProd: ', createdProd);
-  let params, user;
+  db.select('*')
+    .from('products')
+    .where('gtin', '=', gtin)
+    .then((existingProd) => {
+      // console.log('existingProd: ', existingProd);
+      if (existingProd.length) {
+        throw new HttpError('Product gtin already exists in database', 403);
+      }
 
-  try {
-    user = await User.findById(req.userData.userId);
-  } catch (err) {
-    return next(new HttpError('Creating place failed, please try again', 500));
-  }
+      return db
+        .transaction((trx) => {
+          const newProd = {
+            name,
+            description,
+            gtin,
+            category,
+            type,
+            image: req.file ? imageName : null,
+            height,
+            width,
+            depth,
+            weight,
+            packagingtype,
+            tempunits,
+            mintemp,
+            maxtemp,
+            storageinstructions,
+            subscribers: [],
+            dateadded: new Date().toISOString(),
+            datepublished: null,
+            dateinactive: null,
+            datemodified: null,
+            owner: req.userData.userId,
+          };
 
-  if (!user)
-    return next(new HttpError('Could not find user for provided id', 404));
+          trx
+            .insert(newProd)
+            .into('products')
+            .returning('id')
+            .then((prodId) => {
+              console.log('prodId: ', prodId);
+              return trx('users')
+                .where('id', '=', req.userData.userId)
+                .update({
+                  products: db.raw('array_append(products, ?)', [prodId[0].id]),
+                })
+                .then(res.status(201).json({ product: newProd }))
+                .catch((err) => {
+                  return next(
+                    err ||
+                      new HttpError(
+                        'Unable to complete product registration',
+                        500
+                      )
+                  );
+                });
+            })
+            .then(trx.commit);
+        })
+        .catch((err) => {
+          return next(err || new HttpError('Unable to register product', 500));
+        });
+    })
+    .catch((err) => {
+      return next(err || new HttpError('Unable to create product', 500));
+    });
 
-  try {
-    const sess = await mongoose.startSession();
-    sess.startTransaction();
-    await createdProd.save({ session: sess }), user.products.push(createdProd);
-    await user.save({ session: sess });
-    await sess.commitTransaction();
+  // return next(new HttpError('no errors', 500));
 
-    if (req.file) {
-      params = {
-        Bucket: bucketName,
-        Key: imageName,
-        Body: req.file.buffer,
-        ContentType: req.file.mimetype,
-      };
-      await s3.send(new PutObjectCommand(params));
-    }
-  } catch (err) {
-    return next(new HttpError('Creating place failed, please try again!', 500));
-  }
+  //////////////////////////////////////////////
+  // const createdProd = new Product({
+  //   name,
+  //   description,
+  //   gtin,
+  //   category,
+  //   type,
+  //   image: req.file ? imageName : null,
+  //   height,
+  //   width,
+  //   depth,
+  //   weight,
+  //   packagingType,
+  //   tempUnits,
+  //   minTemp,
+  //   maxTemp,
+  //   storageInstructions,
+  //   subscribers: [],
+  //   dateAdded: new Date().toISOString(),
+  //   datePublished: null,
+  //   dateInactive: null,
+  //   dateModified: null,
+  //   owner: req.userData.userId,
+  // });
+  // console.log('createdProd: ', createdProd);
 
-  res.status(201).json({ product: createdProd.toObject({ getters: true }) });
+  // let params, user;
+
+  // try {
+  //   user = await User.findById(req.userData.userId);
+  // } catch (err) {
+  //   return next(new HttpError('Creating place failed, please try again', 500));
+  // }
+
+  // if (!user)
+  //   return next(new HttpError('Could not find user for provided id', 404));
+
+  // try {
+  //   const sess = await mongoose.startSession();
+  //   sess.startTransaction();
+  //   await createdProd.save({ session: sess }), user.products.push(createdProd);
+  //   await user.save({ session: sess });
+  //   await sess.commitTransaction();
+
+  //   if (req.file) {
+  //     params = {
+  //       Bucket: bucketName,
+  //       Key: imageName,
+  //       Body: req.file.buffer,
+  //       ContentType: req.file.mimetype,
+  //     };
+  //     await s3.send(new PutObjectCommand(params));
+  //   }
+  // } catch (err) {
+  //   return next(new HttpError('Creating place failed, please try again!', 500));
+  // }
+
+  // res.status(201).json({ product: createdProd.toObject({ getters: true }) });
 };
 
 const updateProduct = async (req, res, next) => {
