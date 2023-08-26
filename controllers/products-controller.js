@@ -356,14 +356,43 @@ const deleteProduct = async (req, res, next) => {
 
       return db
         .transaction((trx) => {
-          return trx('products')
-            .where('gtin', '=', requestedGtin)
-            .del()
-            .then(() => {
-              trx.commit;
-              res.status(200).json({
-                message: `Product ${requestedGtin} ${deleteProd.name} has been deleted`,
-              });
+              return trx('products')
+                .where('gtin', '=', requestedGtin)
+                .del()
+                .then(() => {
+                  return trx('users')
+                    .where('id', '=', deleteProd.owner)
+                    .then((user) => {
+                      console.log('prod owner: ', user);
+                      const newList = user[0].products.filter(
+                        (itemId) => +itemId !== deleteProd.id
+                      );
+                      console.log('new list: ', newList);
+
+                      return trx('users')
+                        .where('id', '=', deleteProd.owner)
+                        .update({ products: newList })
+                        .catch((err) =>
+                          next(
+                            new HttpError(
+                              'Could not perform product delete',
+                              500
+                            )
+                          )
+                        );
+                    })
+                    .catch((err) =>
+                      next(
+                        new HttpError('Could not perform product deletion', 500)
+                      )
+                    );
+                })
+                .then(() => {
+                  trx.commit;
+                  res.status(200).json({
+                    message: `Product ${requestedGtin} ${deleteProd.name} has been deleted`,
+                  });
+                // });
             })
             .catch((err) => {
               trx.rollback;
@@ -379,53 +408,6 @@ const deleteProduct = async (req, res, next) => {
     .catch((err) =>
       next(err || new HttpError('Unable to delete product', 500))
     );
-
-  // try {
-  //   deleteProd = await Product.find({ gtin: prodId });
-  //   deleteUser = await User(deleteProd[0].owner);
-  // } catch (err) {
-  //   return next(
-  //     new HttpError('Something went wrong, could not delete product', 500)
-  //   );
-  // }
-
-  // if (!deleteProd || deleteProd.length === 0)
-  //   return next(new HttpError('Could not find product for this id', 404));
-
-  // if (deleteProd[0].owner !== req.userData.userId)
-  //   return next(
-  //     new HttpError('You are not authorized to delete this product.', 401)
-  //   );
-
-  // const deleteProdImage = deleteProd[0].image;
-
-  // try {
-  //   const sess = await mongoose.startSession();
-  //   sess.startTransaction();
-  //   await deleteProd[0].remove({ session: sess });
-  //   deleteUser.products.pull(deleteProd[0].id);
-  //   await deleteUser.save({ session: sess });
-  //   await sess.commitTransaction();
-
-  //   if (deleteProdImage) {
-  //     const params = {
-  //       Bucket: bucketName,
-  //       Key: deleteProdImage,
-  //     };
-  //     await s3.send(new DeleteObjectCommand(params));
-  //   }
-  // } catch (err) {
-  //   return next(
-  //     new HttpError(
-  //       'Something went wrong, could not complete product delete',
-  //       500
-  //     )
-  //   );
-  // }
-
-  // res.status(200).json({
-  //   message: `Product ${prodId} ${deleteProd[0].name} has been deleted`,
-  // });
 };
 
 exports.getProductById = getProductById;
