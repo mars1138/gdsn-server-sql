@@ -52,7 +52,34 @@ const getProductsByUserId = async (req, res, next) => {
     .from('products')
     .where('owner', '=', userId)
     .then((prods) => {
-      prods.forEach((prod) => returnProducts.push(prod));
+      prods.forEach((prod) => {
+        console.log(prod);
+        adjProd = {
+          name: prod.name,
+          description: prod.description,
+          gtin: +prod.gtin,
+          category: prod.category,
+          type: prod.type,
+          image: prod.image,
+          height: prod.height,
+          width: prod.width,
+          depth: prod.depth,
+          weight: prod.weight,
+          packagingType: prod.packagingtype,
+          tempUnits: prod.tempunits,
+          minTemp: prod.mintemp,
+          maxTemp: prod.maxtemp,
+          storageInstructions: prod.storageinstructions,
+          subscribers: prod.subscribers,
+          dateAdded: prod.dateadded,
+          datePublished: prod.datepublished,
+          dateInactive: prod.dateinactive,
+          dateModified: prod.datemodified,
+          owner: prod.owner,
+        };
+
+        returnProducts.push(adjProd);
+      });
 
       if (!returnProducts.length)
         throw new HttpError('User Id not valid for any products', 404);
@@ -247,10 +274,11 @@ const updateProduct = async (req, res, next) => {
 
           console.log('subs: ', subscribers);
           if (subscribers[0]) {
-            if (subscribers.length !== existingProd.subscribers.length) {
-              existingProd.subscribers = subscribers;
-              existingProd.datepublished = new Date().toISOString();
-            }
+            const subArray = subscribers.split(',');
+            existingProd.subscribers = [];
+            subArray.forEach((sub) => existingProd.subscribers.push(+sub));
+            existingProd.datepublished = new Date().toISOString();
+            // }
           }
 
           if (!subscribers[0] || !subscribers) {
