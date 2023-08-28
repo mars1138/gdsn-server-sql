@@ -46,38 +46,27 @@ const getProductById = (req, res, next) => {
 
 const getProductsByUserId = async (req, res, next) => {
   const userId = req.params.uid;
+  let returnProducts = [];
 
-  let userWithProducts;
+  db.select('*')
+    .from('products')
+    .where('owner', '=', userId)
+    .then((prods) => {
+      prods.forEach((prod) => returnProducts.push(prod));
 
-  try {
-    userWithProducts = await User.findById(userId).populate('products');
-  } catch (err) {
-    return next(
-      new HttpError('Fetching user products failed, please try again', 500)
+      if (!returnProducts.length)
+        throw new HttpError('User Id not valid for any products', 404);
+
+      console.log(returnProducts);
+
+      res.json({ products: returnProducts });
+    })
+    .catch((err) =>
+      next(
+        err ||
+          new HttpError('Could not find products for the provided user id', 404)
+      )
     );
-  }
-
-  if (!userWithProducts)
-    return next(
-      new HttpError('Could not find products for the provided user id', 404)
-    );
-
-  const returnProducts = userWithProducts.products.map((prod) =>
-    prod.toObject({ getters: true })
-  );
-
-  for (product of returnProducts) {
-    product.image = await getSignedUrl(
-      s3,
-      new GetObjectCommand({
-        Bucket: bucketName,
-        Key: product.image,
-      }),
-      { expiresIn: 3600 } // 60 seconds
-    );
-  }
-
-  res.json(returnProducts);
 };
 
 const createProduct = async (req, res, next) => {
@@ -125,7 +114,7 @@ const createProduct = async (req, res, next) => {
             gtin,
             category,
             type,
-            image: req.file ? imageName : null,
+            // image: req.file ? imageName : null,
             height,
             width,
             depth,
@@ -284,7 +273,7 @@ const updateProduct = async (req, res, next) => {
             .update({
               name: existingProd.name,
               description: existingProd.description,
-              image: existingProd.image,
+              // image: existingProd.image,
               category: existingProd.category,
               height: existingProd.height,
               width: existingProd.width,
@@ -356,43 +345,38 @@ const deleteProduct = async (req, res, next) => {
 
       return db
         .transaction((trx) => {
-              return trx('products')
-                .where('gtin', '=', requestedGtin)
-                .del()
-                .then(() => {
+          return trx('products')
+            .where('gtin', '=', requestedGtin)
+            .del()
+            .then(() => {
+              return trx('users')
+                .where('id', '=', deleteProd.owner)
+                .then((user) => {
+                  console.log('prod owner: ', user);
+                  const newList = user[0].products.filter(
+                    (itemId) => +itemId !== deleteProd.id
+                  );
+                  console.log('new list: ', newList);
+
                   return trx('users')
                     .where('id', '=', deleteProd.owner)
-                    .then((user) => {
-                      console.log('prod owner: ', user);
-                      const newList = user[0].products.filter(
-                        (itemId) => +itemId !== deleteProd.id
-                      );
-                      console.log('new list: ', newList);
-
-                      return trx('users')
-                        .where('id', '=', deleteProd.owner)
-                        .update({ products: newList })
-                        .catch((err) =>
-                          next(
-                            new HttpError(
-                              'Could not perform product delete',
-                              500
-                            )
-                          )
-                        );
-                    })
+                    .update({ products: newList })
                     .catch((err) =>
                       next(
-                        new HttpError('Could not perform product deletion', 500)
+                        new HttpError('Could not perform product delete', 500)
                       )
                     );
                 })
-                .then(() => {
-                  trx.commit;
-                  res.status(200).json({
-                    message: `Product ${requestedGtin} ${deleteProd.name} has been deleted`,
-                  });
-                // });
+                .catch((err) =>
+                  next(new HttpError('Could not perform product deletion', 500))
+                );
+            })
+            .then(() => {
+              trx.commit;
+              res.status(200).json({
+                message: `Product ${requestedGtin} ${deleteProd.name} has been deleted`,
+              });
+              // });
             })
             .catch((err) => {
               trx.rollback;
