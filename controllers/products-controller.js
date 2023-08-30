@@ -10,10 +10,7 @@ const {
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 
 const HttpError = require('../models/http-error');
-const Product = require('../models/product');
-const User = require('../models/user');
 const db = require('../models/db');
-const knex = require('knex');
 
 const bucketName = `${process.env.BUCKET_NAME}`;
 const bucketRegion = `${process.env.BUCKET_REGION}`;
@@ -30,13 +27,11 @@ const s3 = new S3Client({
 
 const getProductById = (req, res, next) => {
   const prodId = req.params.pid;
-  console.log(prodId);
 
   db.select('*')
     .from('products')
     .where('gtin', '=', prodId)
     .then((product) => {
-      console.log(product);
       res.json({ product: product[0] });
     })
     .catch((err) =>
@@ -44,16 +39,15 @@ const getProductById = (req, res, next) => {
     );
 };
 
-const getProductsByUserId = async (req, res, next) => {
+const getProductsByUserId = (req, res, next) => {
   const userId = req.params.uid;
   let returnProducts = [];
 
   db.select('*')
     .from('products')
     .where('owner', '=', userId)
-    .then((prods) => {
+    .then(async (prods) => {
       prods.forEach((prod) => {
-        console.log(prod);
         adjProd = {
           name: prod.name,
           description: prod.description,
@@ -84,7 +78,18 @@ const getProductsByUserId = async (req, res, next) => {
       if (!returnProducts.length)
         throw new HttpError('User Id not valid for any products', 404);
 
-      console.log(returnProducts);
+      for (product of returnProducts) {
+        if (product.image) {
+          product.image = await getSignedUrl(
+            s3,
+            new GetObjectCommand({
+              Bucket: bucketName,
+              Key: product.image,
+            }),
+            { expiresIn: 3600 } // 60 seconds
+          );
+        }
+      }
 
       res.json({ products: returnProducts });
     })
@@ -121,8 +126,8 @@ const createProduct = async (req, res, next) => {
     storageInstructions: storageinstructions,
   } = req.body;
 
-  // const fileType = req.file.mimetype.split('/')[1];
-  // const imageName = `${uuid()}.${fileType}`;
+  const fileType = req.file.mimetype.split('/')[1];
+  const imageName = `${uuid()}.${fileType}`;
 
   db.select('*')
     .from('products')
@@ -135,13 +140,19 @@ const createProduct = async (req, res, next) => {
 
       return db
         .transaction((trx) => {
+          let fileType, newImage;
+          if (req.file) {
+            fileType = req.file.mimetype.split('/')[1];
+            newImage = `${uuid()}.${fileType}`;
+          }
+
           const newProd = {
             name,
             description,
             gtin,
             category,
             type,
-            // image: req.file ? imageName : null,
+            image: req.file ? newImage : null,
             height,
             width,
             depth,
@@ -165,38 +176,42 @@ const createProduct = async (req, res, next) => {
             .returning('id')
             .then((prodId) => {
               console.log('prodId: ', prodId);
-              return (
-                trx('users')
-                  .where('id', '=', req.userData.userId)
-                  .update({
-                    products: db.raw('array_append(products, ?)', [
-                      prodId[0].id,
-                    ]),
-                  })
-                  // .then(async () => {
-                  //   if (req.file) {
-                  //     params = {
-                  //       Bucket: bucketName,
-                  //       Key: imageName,
-                  //       Body: req.file.buffer,
-                  //       ContentType: req.file.mimetype,
-                  //     };
-                  //     await s3.send(new PutObjectCommand(params));
-                  //   }
-                  // })
-                  .then(res.status(201).json({ product: newProd }))
-                  .catch((err) => {
-                    return next(
-                      err ||
-                        new HttpError(
-                          'Unable to complete product registration',
+              return trx('users')
+                .where('id', '=', req.userData.userId)
+                .update({
+                  products: db.raw('array_append(products, ?)', [prodId[0].id]),
+                })
+                .then(() => {
+                  return trx('products').then(async () => {
+                    if (req.file) {
+                      //save image to S3
+                      saveParams = {
+                        Bucket: bucketName,
+                        Key: newImage,
+                        Body: req.file.buffer,
+                        ContentType: req.file.mimetype,
+                      };
+                      const imgSaved = await s3.send(
+                        new PutObjectCommand(saveParams)
+                      );
+
+                      if (imgSaved.$metadata.httpStatusCode !== 200)
+                        throw new HttpError(
+                          'Could not update, please try again',
                           500
-                        )
-                    );
-                  })
-              );
+                        );
+                    }
+                    res.status(200).json({ updated: existingProd });
+                  });
+                })
+                .catch((err) => next(err));
             })
-            .then(trx.commit);
+            .then(trx.commit)
+            .catch((err) => {
+              return next(
+                err || new HttpError('Unable to register product', 500)
+              );
+            });
         })
         .catch((err) => {
           return next(err || new HttpError('Unable to register product', 500));
@@ -214,6 +229,7 @@ const updateProduct = async (req, res, next) => {
       new HttpError('Invalid inputs passed, please check your data', 422)
     );
   }
+  // console.log(req.file);
 
   const requestedGtin = req.params.pid;
   let existingProd;
@@ -267,9 +283,11 @@ const updateProduct = async (req, res, next) => {
           let fileType, oldImage, newImage;
           if (req.file) {
             fileType = req.file.mimetype.split('/')[1];
-            oldImage = product[0].image;
-            newImage = `${uuid}.${fileType}`;
+            oldImage = existingProd.image;
+            newImage = `${uuid()}.${fileType}`;
+            // console.log(newImage);
             existingProd.image = newImage;
+            // console.log(existingProd.image);
           }
 
           console.log('subs: ', subscribers);
@@ -301,7 +319,7 @@ const updateProduct = async (req, res, next) => {
             .update({
               name: existingProd.name,
               description: existingProd.description,
-              // image: existingProd.image,
+              image: existingProd.image,
               category: existingProd.category,
               height: existingProd.height,
               width: existingProd.width,
@@ -317,26 +335,53 @@ const updateProduct = async (req, res, next) => {
               datepublished: existingProd.datepublished,
               dateinactive: existingProd.dateinactive,
             })
-            // .then(async () => {
-            //   if (req.file) {
-            //     //save new image
-            //     saveParams = {
-            //       Bucket: bucketName,
-            //       Key: newImage,
-            //       Body: req.file.buffer,
-            //       ContentType: req.file.mimetype,
-            //     };
-            //     await s3.send(new PutObjectCommand(saveParams));
+            .then(() => {
+              return trx('products')
+                .then(async () => {
+                  if (req.file) {
+                    //save new image
+                    saveParams = {
+                      Bucket: bucketName,
+                      Key: newImage,
+                      Body: req.file.buffer,
+                      ContentType: req.file.mimetype,
+                    };
+                    const imgSaved = await s3.send(
+                      new PutObjectCommand(saveParams)
+                    );
 
-            //     //delete old image
-            //     deleteParams = {
-            //       Bucket: bucketName,
-            //       Key: oldImage,
-            //     };
-            //     await s3.send(new DeleteObjectCommand(deleteParams));
-            //   }
-            // })
-            .then(res.status(200).json({ updated: existingProd }))
+                    if (imgSaved.$metadata.httpStatusCode !== 200)
+                      throw new HttpError(
+                        'Could not update, please try again',
+                        500
+                      );
+                  }
+                })
+                .then(() => {
+                  return trx('products')
+                    .then(async () => {
+                      if (req.file) {
+                        //delete old image
+                        deleteParams = {
+                          Bucket: bucketName,
+                          Key: oldImage,
+                        };
+                        const imgDeleted = await s3.send(
+                          new DeleteObjectCommand(deleteParams)
+                        );
+
+                        if (imgDeleted.$metadata.httpStatusCode !== 204)
+                          throw new HttpError(
+                            'Could not update, please try again',
+                            500
+                          );
+                      }
+                      res.status(200).json({ updated: existingProd });
+                    })
+                    .catch((err) => next(err));
+                })
+                .catch((err) => next(err));
+            })
             .then(trx.commit)
             .catch((err) => {
               trx.rollback;
@@ -380,11 +425,11 @@ const deleteProduct = async (req, res, next) => {
               return trx('users')
                 .where('id', '=', deleteProd.owner)
                 .then((user) => {
-                  console.log('prod owner: ', user);
+                  // console.log('prod owner: ', user);
                   const newList = user[0].products.filter(
                     (itemId) => +itemId !== deleteProd.id
                   );
-                  console.log('new list: ', newList);
+                  // console.log('new list: ', newList);
 
                   return trx('users')
                     .where('id', '=', deleteProd.owner)
@@ -399,8 +444,18 @@ const deleteProduct = async (req, res, next) => {
                   next(new HttpError('Could not perform product deletion', 500))
                 );
             })
-            .then(() => {
+            .then(async () => {
               trx.commit;
+
+              if (deleteProd.image) {
+                //delete old image
+                deleteParams = {
+                  Bucket: bucketName,
+                  Key: deleteProd.image,
+                };
+                await s3.send(new DeleteObjectCommand(deleteParams));
+              }
+
               res.status(200).json({
                 message: `Product ${requestedGtin} ${deleteProd.name} has been deleted`,
               });

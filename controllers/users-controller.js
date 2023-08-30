@@ -137,9 +137,9 @@ const login = (req, res, next) => {
     .from('login')
     .where('email', '=', email)
     .then(async (data) => {
-      console.log('data: ', data);
+      // console.log('data: ', data);
       const isValid = await bcrypt.compare(password, data[0].hash);
-      console.log('isValid: ', isValid);
+      // console.log('isValid: ', isValid);
 
       if (isValid) {
         return db
@@ -147,7 +147,7 @@ const login = (req, res, next) => {
           .from('users')
           .where('email', '=', email)
           .then((user) => {
-            console.log('retrieved user: ', user);
+            // console.log('retrieved user: ', user);
 
             token = jwt.sign(
               {
