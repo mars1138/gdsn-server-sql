@@ -175,7 +175,7 @@ const createProduct = async (req, res, next) => {
             .into('products')
             .returning('id')
             .then((prodId) => {
-              console.log('prodId: ', prodId);
+              // console.log('prodId: ', prodId);
               return trx('users')
                 .where('id', '=', req.userData.userId)
                 .update({
@@ -207,11 +207,7 @@ const createProduct = async (req, res, next) => {
                 .catch((err) => next(err));
             })
             .then(trx.commit)
-            .catch((err) => {
-              return next(
-                err || new HttpError('Unable to register product', 500)
-              );
-            });
+            .catch(trx.rollback);
         })
         .catch((err) => {
           return next(err || new HttpError('Unable to register product', 500));
@@ -346,6 +342,7 @@ const updateProduct = async (req, res, next) => {
                       Body: req.file.buffer,
                       ContentType: req.file.mimetype,
                     };
+
                     const imgSaved = await s3.send(
                       new PutObjectCommand(saveParams)
                     );
@@ -383,12 +380,7 @@ const updateProduct = async (req, res, next) => {
                 .catch((err) => next(err));
             })
             .then(trx.commit)
-            .catch((err) => {
-              trx.rollback;
-              return next(
-                err || new HttpError('Could not complete product update', 500)
-              );
-            });
+            .catch(trx.rollback);
         })
         .catch((err) =>
           next(err || new HttpError('Unable to update product', 500))
@@ -418,7 +410,7 @@ const deleteProduct = async (req, res, next) => {
 
       return db
         .transaction((trx) => {
-          return trx('products')
+          trx('products')
             .where('gtin', '=', requestedGtin)
             .del()
             .then(() => {
@@ -434,39 +426,45 @@ const deleteProduct = async (req, res, next) => {
                   return trx('users')
                     .where('id', '=', deleteProd.owner)
                     .update({ products: newList })
-                    .catch((err) =>
-                      next(
-                        new HttpError('Could not perform product delete', 500)
-                      )
-                    );
+                    .then(() => {
+                      return trx('products')
+                        .then(async () => {
+                          if (deleteProd.image) {
+                            //delete old image
+                            deleteParams = {
+                              Bucket: bucketName,
+                              Key: deleteProd.image,
+                            };
+
+                            const imgDeleted = await s3.send(
+                              new DeleteObjectCommand(deleteParams)
+                            );
+
+                            if (imgDeleted.$metadata.httpStatusCode !== 204)
+                              throw new HttpError(
+                                'Could not update, please try again',
+                                500
+                              );
+                          }
+
+                          res.status(200).json({
+                            message: `Product ${requestedGtin} ${deleteProd.name} has been deleted`,
+                          });
+                        })
+                        .catch((err) => next(err));
+                    })
+                    .catch((err) => next(err));
                 })
-                .catch((err) =>
-                  next(new HttpError('Could not perform product deletion', 500))
+                .catch(
+                  (err) =>
+                    err ||
+                    next(
+                      new HttpError('Could not perform product deletion', 500)
+                    )
                 );
             })
-            .then(async () => {
-              trx.commit;
-
-              if (deleteProd.image) {
-                //delete old image
-                deleteParams = {
-                  Bucket: bucketName,
-                  Key: deleteProd.image,
-                };
-                await s3.send(new DeleteObjectCommand(deleteParams));
-              }
-
-              res.status(200).json({
-                message: `Product ${requestedGtin} ${deleteProd.name} has been deleted`,
-              });
-              // });
-            })
-            .catch((err) => {
-              trx.rollback;
-              return next(
-                err || new HttpError('Could not complete product deletion', 500)
-              );
-            });
+            .then(trx.commit)
+            .catch(trx.rollback);
         })
         .catch((err) =>
           next(err || new HttpError('Unable to delete product', 500))
