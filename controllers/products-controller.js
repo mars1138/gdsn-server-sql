@@ -286,7 +286,7 @@ const updateProduct = async (req, res, next) => {
             // console.log(existingProd.image);
           }
 
-          console.log('subs: ', subscribers);
+          // console.log('subs: ', subscribers);
           if (subscribers[0]) {
             const subArray = subscribers.split(',');
             existingProd.subscribers = [];
@@ -308,7 +308,7 @@ const updateProduct = async (req, res, next) => {
 
           existingProd.datemodified = new Date().toISOString();
 
-          console.log('existingProd: ', existingProd);
+          // console.log('existingProd: ', existingProd);
 
           trx('products')
             .where('id', '=', existingProd.id)
