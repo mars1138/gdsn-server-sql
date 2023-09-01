@@ -1,6 +1,6 @@
 const knex = require('knex');
 
-PRODUCTION
+// PRODUCTION
 const db = knex({
   client: 'pg',
   connection: {
