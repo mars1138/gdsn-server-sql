@@ -1,6 +1,5 @@
 const { validationResult } = require('express-validator');
 const HttpError = require('../models/http-error');
-const ContactItem = require('../models/contactitem');
 const db = require('../models/db');
 
 const createContactItem = async (req, res, next) => {
@@ -25,7 +24,7 @@ const createContactItem = async (req, res, next) => {
         comments,
         created: new Date().toISOString(),
       })
-      .into('contact')
+      .into('contacts')
       .returning('*')
       .then((contact) => {
         res.status(201).json({
@@ -42,7 +41,7 @@ const createContactItem = async (req, res, next) => {
 
 const getContactItems = async (req, res, next) => {
   db.select('*')
-    .from('contact')
+    .from('contacts')
     .then((contacts) => {
       if (contacts.length) res.json(contacts);
       else return next(new HttpError('No contacts to fetch', 400));

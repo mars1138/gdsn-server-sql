@@ -1,4 +1,4 @@
-const path = require('path');
+// const path = require('path');
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -6,8 +6,8 @@ const bodyParser = require('body-parser');
 
 const productsRoutes = require('./routes/products-routes');
 const usersRoutes = require('./routes/users-routes');
-const contactRoutes = require('./routes/contact-routes');
-const db = require('./models/db');
+const contactsRoutes = require('./routes/contacts-routes');
+// const db = require('./models/db');
 
 // const db = knex({
 //   client: `${process.env.DB_CLIENT}`,
@@ -22,6 +22,9 @@ const db = require('./models/db');
 // db.select('*')
 //   .from('users')
 //   .then((data) => console.log(data));
+// db.select('*')
+//   .from('contacts')
+//   .then((data) => console.log(data));
 
 const app = express();
 const cors = require('cors');
@@ -33,14 +36,14 @@ app.use(bodyParser.json());
 app.use(
   cors({
     origin: '*',
-    // origin: `${process.env.CLIENT_URL}`,
+    origin: `${process.env.CLIENT_URL}`,
     methods: ['GET', 'POST', 'DELETE', 'UPDATE', 'PUT', 'PATCH'],
   })
 );
 
 app.use('/api/products', productsRoutes);
 app.use('/api/users', usersRoutes);
-app.use('/api/contact', contactRoutes);
+app.use('/api/contacts', contactsRoutes);
 
 // app.use((req, res, next) => {
 //   const error = new HttpError('Could not find this route', 404);

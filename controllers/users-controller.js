@@ -3,7 +3,6 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 const HttpError = require('../models/http-error');
-const User = require('../models/user');
 const db = require('../models/db');
 
 const getUsers = (req, res, next) => {
